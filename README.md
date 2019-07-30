@@ -45,3 +45,40 @@ log.Debug(map[string]interface{}{
 })
 log.Debugf("xxxxx")
 ```
+
+## 连接池
+
+### 核心配置
+
+```
+MaxIdle
+MaxActive
+Dial
+Wait
+```
+
+### 使用
+```
+import (
+    "net"
+    "time"
+    "math/rand"
+)
+rand_gen := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+client.pool = pool.New(
+    client.MaxIdle,
+    client.MaxActive,
+    client.IdleTimeoutS,
+    func() (pool.Conn, error) {
+        index := rand_gen.Intn(len(client.Addrs))
+        c, err := net.Dial("tcp", client.Addrs[index])
+        if err == nil {
+            err = c.SetWriteDeadline(time.Now().Add(time.Duration(client.WriteTimeoutMs) * time.Nanosecond))
+            err = c.SetReadDeadline(time.Now().Add(time.Duration(client.ReadTimeoutMs) * time.Nanosecond))
+        }
+        return c, err
+    },
+)
+client.pool.SetWait(true)
+```
