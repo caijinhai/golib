@@ -27,12 +27,12 @@ func TestPool(t *testing.T) {
 	rand_gen := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	client := Client{
-		ConnTimeoutMs:  100,
+		ConnTimeoutMs:  50,
 		WriteTimeoutMs: 200,
 		ReadTimeoutMs:  200,
 		IdleTimeoutS:   60,
 		MaxIdle:        100,
-		MaxActive:      200,
+		MaxActive:      1,
 		Addrs:          []string{"39.156.66.14:80"},
 	}
 
@@ -50,13 +50,29 @@ func TestPool(t *testing.T) {
 			}
 			return c, err
 		},
+		true,
 	)
 
-	conn, err := client.pool.Get()
-	fmt.Println(conn)
+	fmt.Println("准备获取连接conn1")
+	conn1, err := client.pool.Get()
+	fmt.Println("完成获取连接conn1")
+
+	go func() {
+		fmt.Println("准备释放conn1")
+		time.Sleep(time.Duration(5) * time.Second)
+		client.pool.Release(conn1)
+		fmt.Println("完成释放conn1")
+	}()
 	if err != nil {
+		fmt.Println(111)
 		t.Fatal(err)
 	}
-
-	client.pool.Release(conn)
+	fmt.Println("准备获取连接conn2")
+	conn2, err := client.pool.Get()
+	fmt.Println("完成获取连接conn2")
+	if err != nil {
+		fmt.Println(222)
+		t.Fatal(err)
+	}
+	client.pool.Release(conn2)
 }

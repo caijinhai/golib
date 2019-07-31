@@ -14,6 +14,7 @@ type Conn interface {
 }
 
 type IdleConn struct {
+	p ConnPool
 	c Conn
 	t time.Time
 }
@@ -24,77 +25,86 @@ type ConnPool struct {
 
 	// Dial is used to create a new connection when necessary.
 	Dial         func() (Conn, error)
-	TestOnBorrow bool // 测试连接健康
-
-	// Ping is use to check the conn fetched from pool
-	Ping func(Conn) error
+	TestOnBorrow func(Conn) error // 测试连接健康，比如检查角色是否master，ping是否正常
 
 	MaxActive   int           // 同一时刻最多使用连接数 max active
 	MaxIdle     int           // 池子最大保留连接 max idle
 	IdleTimeout time.Duration // 池子中的连接过期时间
-	active      int           // 当前正在使用的连接数 active = idle + using
-	idlelist    list.List
 
-	// If Wait is true and the pool is at the MaxActive limit, then Get() waits
+	// If Wait is true and the pool is at the MaxActive limit, then Get() Waits
 	// for a connection to be returned to the pool before returning.
-	wait bool
+	Wait bool
 
+	active   int // 当前正在使用的连接数 active = idle + using
+	idlelist list.List
 	// mu protects fields defined below.
 	mu   sync.Mutex
 	cond *sync.Cond
 }
 
-func New(maxIdle int, maxActive int, idleTimeout int, dial func() (Conn, error)) *ConnPool {
-	return &ConnPool{
+func New(maxIdle int, maxActive int, idleTimeoutS int, dial func() (Conn, error), wait bool) *ConnPool {
+	pool := &ConnPool{
 		MaxIdle:     maxIdle,
 		MaxActive:   maxActive,
-		IdleTimeout: time.Duration(idleTimeout) * time.Second,
+		IdleTimeout: time.Duration(idleTimeoutS) * time.Second,
 		Dial:        dial,
+		Wait:        wait,
 	}
+	if pool.Wait {
+		pool.cond = sync.NewCond(&pool.mu)
+	}
+
+	return pool
 }
 
-func (pool *ConnPool) SetWait(wait bool) {
-	pool.wait = wait
-}
-
+/**
+* 设计理念：所有的对外接口，上层加锁，下层私有函数不加锁，防止同一个锁在不同层中使用导致重入，因为go没有可重入锁
+ */
 func (this *ConnPool) Get() (conn Conn, err error) {
+	this.mu.Lock()
+	defer this.mu.Unlock()
 	if this.IdleTimeout > 0 {
 		this.closeExipredIdle()
 	}
-	conn = this.get()
-	if conn != nil {
-		if this.TestOnBorrow {
-			err = this.Ping(conn)
-			if err != nil {
-				conn.Close()
-				conn = this.get()
-				err = nil
+	for {
+		// 从连接池中取
+		conn = this.getIdle()
+		if conn != nil {
+			if this.TestOnBorrow != nil {
+				err = this.TestOnBorrow(conn)
+				if err != nil {
+					conn.Close()
+					conn = this.getIdle()
+					err = nil
+				}
 			}
+			break
 		}
-		return
-	}
 
-	if this.overMaxActive() {
-		return nil, ErrMaxConn
-		// TODO
-		// wait 等其它请求释放
-	}
-
-	conn, err = this.Dial()
-	if err != nil {
-		return
-	}
-
-	if this.TestOnBorrow {
-		err = this.Ping(conn)
-		if err != nil {
-			conn.Close()
-			return nil, err
+		// 连接池不够，看是否超过活跃上限，超过则等待其它请求释放连接，否则dial一个新连接
+		if this.MaxActive == 0 || !this.overMaxActive() {
+			conn, err = this.Dial()
+			if err == nil {
+				this.increActive(1)
+			}
+			if this.TestOnBorrow != nil {
+				err = this.TestOnBorrow(conn)
+				if err != nil {
+					conn.Close()
+					conn = nil
+				}
+			}
+			break
 		}
-	}
 
-	this.increActive()
-	return
+		if !this.Wait {
+			conn = nil
+			err = ErrMaxConn
+			break
+		}
+		this.cond.Wait()
+	}
+	return conn, err
 }
 
 /**
@@ -102,12 +112,15 @@ func (this *ConnPool) Get() (conn Conn, err error) {
 * 关掉连接 或 放入池中
  */
 func (this *ConnPool) Release(conn Conn) {
+	this.mu.Lock()
+	defer this.mu.Unlock()
 	if this.overMaxIdle() {
 		this.close(conn)
 	} else {
-		this.Lock()
-		defer this.Unlock()
 		this.idlelist.PushFront(IdleConn{t: time.Now(), c: conn})
+	}
+	if this.cond != nil {
+		this.cond.Signal()
 	}
 }
 
@@ -115,23 +128,24 @@ func (this *ConnPool) Release(conn Conn) {
 * 销毁关闭所有连接
  */
 func (this *ConnPool) Destory() {
-	this.Lock()
-	defer this.Unlock()
-
-	this.resetActive()
-	for e := this.idlelist.Front(); e != nil; e = e.Next() {
+	this.mu.Lock()
+	defer this.mu.Unlock()
+	this.decreActive(this.len())
+	idlelist := this.idlelist
+	this.idlelist.Init()
+	for e := idlelist.Front(); e != nil; e = e.Next() {
 		e.Value.(IdleConn).c.Close()
+	}
+	if this.cond != nil {
+		this.cond.Broadcast()
 	}
 }
 
 /**
 * 尝试从池子中拿连接
  */
-func (this *ConnPool) get() Conn {
-	this.Lock()
-	defer this.Unlock()
-
-	if this.idlelist.Len() == 0 {
+func (this *ConnPool) getIdle() Conn {
+	if this.len() == 0 {
 		return nil
 	}
 
@@ -143,10 +157,17 @@ func (this *ConnPool) get() Conn {
 }
 
 /**
+* 获取连接池中的连接数
+ */
+func (this *ConnPool) len() int {
+	return this.idlelist.Len()
+}
+
+/**
 * 关闭连接
  */
 func (this *ConnPool) close(conn Conn) {
-	this.decreActive()
+	this.decreActive(1)
 	if conn != nil {
 		conn.Close()
 	}
@@ -171,30 +192,18 @@ func (this *ConnPool) closeExipredIdle() {
 	}
 }
 
-func (this *ConnPool) increActive() {
-	this.Lock()
-	defer this.Unlock()
-	this.active += 1
+func (this *ConnPool) increActive(num int) {
+	this.active += num
 }
 
-func (this *ConnPool) decreActive() {
-	this.Lock()
-	defer this.Unlock()
-	this.active -= 1
-}
-
-func (this *ConnPool) resetActive() {
-	this.Lock()
-	defer this.Unlock()
-	this.active = 0
+func (this *ConnPool) decreActive(num int) {
+	this.active -= num
 }
 
 /**
 * 超过活跃的连接数
  */
 func (this *ConnPool) overMaxActive() bool {
-	this.RLock()
-	defer this.RUnlock()
 	return this.active >= this.MaxActive
 }
 
@@ -202,7 +211,5 @@ func (this *ConnPool) overMaxActive() bool {
 * 超过池子中的连接数
  */
 func (this *ConnPool) overMaxIdle() bool {
-	this.RLock()
-	defer this.RUnlock()
-	return this.idlelist.Len() >= this.MaxIdle
+	return this.len() >= this.MaxIdle
 }
