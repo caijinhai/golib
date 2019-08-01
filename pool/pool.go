@@ -13,7 +13,10 @@ type Conn interface {
 	Close() error
 }
 
-type IdleConn struct {
+/**
+* idlelist 成员：池子中的连接
+ */
+type idle struct {
 	p ConnPool
 	c Conn
 	t time.Time
@@ -53,6 +56,10 @@ func New(maxIdle int, maxActive int, idleTimeoutS int, dial func() (Conn, error)
 	if pool.Wait {
 		pool.cond = sync.NewCond(&pool.mu)
 	}
+	// pool.TestOnBorrow = func(c Conn) error {
+	// 	_, err := c.Do("PING")
+	// 	return err
+	// }
 
 	return pool
 }
@@ -117,7 +124,7 @@ func (this *ConnPool) Release(conn Conn) {
 	if this.overMaxIdle() {
 		this.close(conn)
 	} else {
-		this.idlelist.PushFront(IdleConn{t: time.Now(), c: conn})
+		this.idlelist.PushFront(idle{t: time.Now(), c: conn})
 	}
 	if this.cond != nil {
 		this.cond.Signal()
@@ -134,7 +141,7 @@ func (this *ConnPool) Destory() {
 	idlelist := this.idlelist
 	this.idlelist.Init()
 	for e := idlelist.Front(); e != nil; e = e.Next() {
-		e.Value.(IdleConn).c.Close()
+		e.Value.(idle).c.Close()
 	}
 	if this.cond != nil {
 		this.cond.Broadcast()
@@ -150,7 +157,7 @@ func (this *ConnPool) getIdle() Conn {
 	}
 
 	e := this.idlelist.Front()
-	ic := e.Value.(IdleConn)
+	ic := e.Value.(idle)
 	this.idlelist.Remove(e)
 
 	return ic.c
@@ -183,7 +190,7 @@ func (this *ConnPool) closeExipredIdle() {
 		if e == nil {
 			break
 		}
-		ic := e.Value.(IdleConn)
+		ic := e.Value.(idle)
 		if time.Now().Before(ic.t.Add(this.IdleTimeout)) {
 			break
 		}

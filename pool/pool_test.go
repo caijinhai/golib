@@ -42,12 +42,11 @@ func TestPool(t *testing.T) {
 		client.IdleTimeoutS,
 		func() (Conn, error) {
 			index := rand_gen.Intn(len(client.Addrs))
-			dialer := net.Dialer{Timeout: time.Duration(client.ConnTimeoutMs) * time.Millisecond}
-			c, err := dialer.Dial("tcp", client.Addrs[index])
-			if err == nil {
-				c.SetWriteDeadline(time.Now().Add(time.Duration(client.WriteTimeoutMs) * time.Millisecond))
-				c.SetReadDeadline(time.Now().Add(time.Duration(client.ReadTimeoutMs) * time.Millisecond))
-			}
+			c, err := net.DialTimeout(
+				"tcp",
+				client.Addrs[index],
+				time.Duration(client.ConnTimeoutMs)*time.Millisecond,
+			)
 			return c, err
 		},
 		true,
