@@ -6,6 +6,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/caijinlin/golib/log"
 )
 
 /**
@@ -20,6 +22,10 @@ type Client struct {
 	MaxActive      int
 	Addrs          []string
 	pool           *ConnPool
+}
+
+func init() {
+	log.Init("../log/log.conf")
 }
 
 func TestPool(t *testing.T) {
@@ -58,7 +64,7 @@ func TestPool(t *testing.T) {
 
 	go func() {
 		fmt.Println("准备释放conn1")
-		time.Sleep(time.Duration(5) * time.Second)
+		time.Sleep(time.Duration(1) * time.Second)
 		client.pool.Release(conn1)
 		fmt.Println("完成释放conn1")
 	}()
@@ -74,4 +80,7 @@ func TestPool(t *testing.T) {
 		t.Fatal(err)
 	}
 	client.pool.Release(conn2)
+	log.Info(map[string]interface{}{
+		"xxx": "Nice, you are great",
+	})
 }

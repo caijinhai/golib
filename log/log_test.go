@@ -21,6 +21,7 @@ func TestLog(t *testing.T) {
 		})
 		time.Sleep(time.Millisecond * 2)
 		Infof("xxxxx")
+		break
 	}
 
 }

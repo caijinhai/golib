@@ -173,7 +173,7 @@ func newLogger(conf LogConfig) *syslog.Logger {
 		os.Exit(1)
 	}
 
-	flag := syslog.Ldate | syslog.Ltime | syslog.Lshortfile | syslog.Lmicroseconds
+	flag := syslog.Ldate | syslog.Ltime | syslog.Lmicroseconds
 
 	logger := syslog.New(fd, "", flag)
 

@@ -3,6 +3,7 @@ package log
 import (
 	"bytes"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -90,7 +91,23 @@ func getbuf() *bytes.Buffer {
 }
 
 func header() string {
-	return ""
+
+	pc, file, line, _ := runtime.Caller(3)
+	function := runtime.FuncForPC(pc)
+
+	// 缩短文件名，最多显示3级
+	dirs := strings.Split(file, "/")
+	n := len(dirs)
+	if n > 3 {
+		n = 3
+	}
+	fileName := ""
+	for i := n; i > 0; i-- {
+		fileName += dirs[len(dirs)-i] + "/"
+	}
+	fileName = strings.TrimSuffix(fileName, "/")
+
+	return "[" + fileName + ":" + strconv.Itoa(line) + "::" + function.Name() + "]"
 }
 
 func contentToBuffer(header string, body string) *bytes.Buffer {
@@ -98,6 +115,7 @@ func contentToBuffer(header string, body string) *bytes.Buffer {
 	buf := &bytes.Buffer{}
 
 	fmt.Fprintf(buf, header)
+	fmt.Fprintf(buf, " ")
 	fmt.Fprintf(buf, body)
 	if buf.Bytes()[buf.Len()-1] != '\n' {
 		buf.WriteByte('\n')
@@ -109,9 +127,9 @@ func contentToBuffer(header string, body string) *bytes.Buffer {
 func mapToStr(m map[string]interface{}) string {
 	var str string
 	for k, v := range m {
-		str = str + "||"
 		str = str + fmt.Sprintf("%v=%v", k, v)
+		str = str + "||"
 	}
 
-	return str
+	return strings.TrimSuffix(str, "||")
 }
