@@ -1,9 +1,14 @@
 package redis
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/caijinlin/golib/helper"
 	"github.com/caijinlin/golib/log"
 	"github.com/caijinlin/golib/pool"
 	redislib "github.com/garyburd/redigo/redis"
+	"io/ioutil"
 	"math/rand"
 	"net"
 	"time"
@@ -16,10 +21,33 @@ type Client struct {
 	IdleTimeoutS   int // 单位秒
 	MaxIdle        int // 连接池中的最大连接数
 	MaxActive      int // 最大活跃数
-	Addrs          []string
+	Servers        []string
 	Password       string
 	Db             int
 	pool           *pool.ConnPool
+}
+
+/**
+* 通过配置文件生成client
+ */
+func Init(confFile string) (redisClient map[string]*Client, err error) {
+	if res, err := ioutil.ReadFile(confFile); err != nil {
+		err = errors.New("error opening conf file=" + confFile)
+	} else {
+		if err := json.Unmarshal(res, &redisClient); err != nil {
+			msg := fmt.Sprintf("error parsing conf file=%s, err=%s", confFile, err.Error())
+			err = errors.New(msg)
+		}
+	}
+
+	if err != nil {
+		return
+	}
+	for key, _ := range redisClient {
+		redisClient[key].Init()
+	}
+
+	return
 }
 
 /**
@@ -59,12 +87,25 @@ func (client *Client) Unlock(key string, value string) (err error) {
 }
 
 func (client *Client) DoScript(scirpt *redislib.Script, args ...interface{}) (reply []byte, err error) {
+	// 耗时统计
+	start := time.Now()
+	defer func() {
+		cost := time.Now().Sub(start)
+		errmsg := ""
+		if err != nil {
+			errmsg = err.Error()
+		}
+		log.Info(map[string]interface{}{
+			"action":  "redis_do",
+			"command": "DoScript",
+			"cost":    helper.FormatDurationToMs(cost),
+			"errmsg":  errmsg,
+		})
+	}()
+
 	conn, err := client.pool.Get()
 	if err != nil {
-		log.Warning(map[string]interface{}{
-			"action": "poolGetConn",
-			"err":    err,
-		})
+		return
 	}
 	defer client.pool.Release(conn)
 	redisConn, _ := conn.(redislib.Conn)
@@ -73,12 +114,24 @@ func (client *Client) DoScript(scirpt *redislib.Script, args ...interface{}) (re
 }
 
 func (client *Client) Do(commandName string, args ...interface{}) (reply []byte, err error) {
+	// 耗时统计
+	start := time.Now()
+	defer func() {
+		cost := time.Now().Sub(start)
+		errmsg := ""
+		if err != nil {
+			errmsg = err.Error()
+		}
+		log.Info(map[string]interface{}{
+			"action":  "redis_do",
+			"command": commandName,
+			"cost":    helper.FormatDurationToMs(cost),
+			"errmsg":  errmsg,
+		})
+	}()
+
 	conn, err := client.pool.Get()
 	if err != nil {
-		log.Warning(map[string]interface{}{
-			"action": "poolGetConn",
-			"err":    err,
-		})
 		return
 	}
 	defer client.pool.Release(conn)
@@ -96,11 +149,11 @@ func (client *Client) initPool() {
 		client.MaxActive,
 		client.IdleTimeoutS,
 		func() (pool.Conn, error) {
-			index := rand_gen.Intn(len(client.Addrs))
+			index := rand_gen.Intn(len(client.Servers))
 			// 网络连接
 			netConn, err := net.DialTimeout(
 				"tcp",
-				client.Addrs[index],
+				client.Servers[index],
 				time.Duration(client.ConnTimeoutMs)*time.Millisecond,
 			)
 			// redis连接

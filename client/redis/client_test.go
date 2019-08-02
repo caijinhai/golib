@@ -5,27 +5,16 @@ import (
 	"testing"
 )
 
-func init() {
-
-}
-
 func TestClient(t *testing.T) {
 
-	// TODO 通过配置文件转化
-	client := Client{
-		ConnTimeoutMs:  50,
-		WriteTimeoutMs: 200,
-		ReadTimeoutMs:  200,
-		IdleTimeoutS:   60,
-		MaxIdle:        100,
-		MaxActive:      1,
-		Addrs:          []string{"127.0.0.1:6379"},
-		Db:             0,
-		Password:       "",
+	redisClient, err := Init("../../conf/redis.conf")
+	if err != nil {
+		t.Fatal(err)
 	}
-	client.Init()
-
-	value, err := client.Get("test")
+	value, err := redisClient["order"].Get("test")
+	if err != nil {
+		t.Fatal(err)
+	}
 	fmt.Println(map[string]interface{}{
 		"action": "getRedis",
 		"value":  string(value),

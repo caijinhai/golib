@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	syslog "log"
 	"os"
@@ -40,7 +41,7 @@ type Log struct {
 }
 
 type LogConfig struct {
-	Type          string // syslog/stderr/std/file
+	Type          string // std/file
 	Level         string // DEBUG/INFO/WARNING/ERROR/FATAL
 	Dir           string // 文件目录
 	FileName      string // 文件名
@@ -50,6 +51,14 @@ type LogConfig struct {
 }
 
 var l Log
+
+func init() {
+	// 设置默认输出logger
+	conf := LogConfig{
+		Type: "std",
+	}
+	SetLogger(newLogger(conf))
+}
 
 func Init(path string) error {
 	var conf LogConfig
@@ -166,16 +175,21 @@ func printf(level Level, format string, args ...interface{}) {
 }
 
 func newLogger(conf LogConfig) *syslog.Logger {
-	path := path.Join(conf.Dir, conf.FileName)
-	fd, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		syslog.Fatal(err)
-		os.Exit(1)
+	flag := syslog.Ldate | syslog.Ltime | syslog.Lmicroseconds
+	var output io.Writer
+	if conf.Type == "file" {
+		path := path.Join(conf.Dir, conf.FileName)
+		fd, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			syslog.Fatal(err)
+			os.Exit(1)
+		}
+		output = fd
+	} else {
+		output = os.Stdout
 	}
 
-	flag := syslog.Ldate | syslog.Ltime | syslog.Lmicroseconds
-
-	logger := syslog.New(fd, "", flag)
+	logger := syslog.New(output, "", flag)
 
 	return logger
 }

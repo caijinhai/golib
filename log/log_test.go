@@ -7,7 +7,7 @@ import (
 
 func TestLog(t *testing.T) {
 
-	err := Init("./log.conf")
+	err := Init("../conf/log.conf")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -20,12 +20,8 @@ type Client struct {
 	IdleTimeoutS   int // 单位秒
 	MaxIdle        int
 	MaxActive      int
-	Addrs          []string
+	Servers        []string
 	pool           *ConnPool
-}
-
-func init() {
-	log.Init("../log/log.conf")
 }
 
 func TestPool(t *testing.T) {
@@ -39,7 +35,7 @@ func TestPool(t *testing.T) {
 		IdleTimeoutS:   60,
 		MaxIdle:        100,
 		MaxActive:      1,
-		Addrs:          []string{"39.156.66.14:80"},
+		Servers:        []string{"127.0.0.1:3306"},
 	}
 
 	client.pool = New(
@@ -47,10 +43,10 @@ func TestPool(t *testing.T) {
 		client.MaxActive,
 		client.IdleTimeoutS,
 		func() (Conn, error) {
-			index := rand_gen.Intn(len(client.Addrs))
+			index := rand_gen.Intn(len(client.Servers))
 			c, err := net.DialTimeout(
 				"tcp",
-				client.Addrs[index],
+				client.Servers[index],
 				time.Duration(client.ConnTimeoutMs)*time.Millisecond,
 			)
 			return c, err

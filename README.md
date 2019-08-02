@@ -71,14 +71,14 @@ client.pool = pool.New(
     client.MaxActive,
     client.IdleTimeoutS,
     func() (pool.Conn, error) {
-        index := rand_gen.Intn(len(client.Addrs))
-        c, err := net.Dial("tcp", client.Addrs[index])
+        index := rand_gen.Intn(len(client.Servers))
+        c, err := net.Dial("tcp", client.Servers[index])
         if err == nil {
             err = c.SetWriteDeadline(time.Now().Add(time.Duration(client.WriteTimeoutMs) * time.Nanosecond))
             err = c.SetReadDeadline(time.Now().Add(time.Duration(client.ReadTimeoutMs) * time.Nanosecond))
         }
         return c, err
     },
+    true,
 )
-client.pool.SetWait(true)
 ```
