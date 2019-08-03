@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/FZambia/sentinel"
 	"github.com/caijinlin/golib/helper"
 	"github.com/caijinlin/golib/log"
 	"github.com/caijinlin/golib/pool"
-	redislib "github.com/garyburd/redigo/redis"
+	redislib "github.com/gomodule/redigo/redis"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -15,16 +16,19 @@ import (
 )
 
 type Client struct {
-	ConnTimeoutMs  int // 单位毫秒
-	WriteTimeoutMs int // 单位毫秒
-	ReadTimeoutMs  int // 单位毫秒
-	IdleTimeoutS   int // 单位秒
-	MaxIdle        int // 连接池中的最大连接数
-	MaxActive      int // 最大活跃数
-	Servers        []string
-	Password       string
-	Db             int
-	pool           *pool.ConnPool
+	ConnTimeoutMs   int // 单位毫秒
+	WriteTimeoutMs  int // 单位毫秒
+	ReadTimeoutMs   int // 单位毫秒
+	IdleTimeoutS    int // 单位秒
+	MaxIdle         int // 连接池中的最大连接数
+	MaxActive       int // 最大活跃数
+	SentinelServers []string
+	Servers         []string
+	RedisSet        string
+	Password        string
+	Db              int
+	pool            *pool.ConnPool
+	spool           *pool.ConnPool // sentinel连接池master
 }
 
 /**
@@ -55,6 +59,18 @@ func Init(confFile string) (redisClient map[string]*Client, err error) {
 **/
 func (client *Client) Init() {
 	client.initPool()
+	if len(client.SentinelServers) > 0 {
+		client.initSentinelpool()
+	}
+}
+
+func (client *Client) Close() {
+	if client.pool != nil {
+		client.pool.Destory()
+	}
+	if client.spool != nil {
+		client.spool.Destory()
+	}
 }
 
 func (client *Client) Get(key string) (value []byte, err error) {
@@ -103,11 +119,15 @@ func (client *Client) DoScript(scirpt *redislib.Script, args ...interface{}) (re
 		})
 	}()
 
-	conn, err := client.pool.Get()
+	pool := client.pool
+	if len(client.SentinelServers) > 0 {
+		pool = client.spool
+	}
+	conn, err := pool.Get()
 	if err != nil {
 		return
 	}
-	defer client.pool.Release(conn)
+	defer pool.Release(conn)
 	redisConn, _ := conn.(redislib.Conn)
 	reply, err = redislib.Bytes(scirpt.Do(redisConn, args...))
 	return
@@ -130,11 +150,15 @@ func (client *Client) Do(commandName string, args ...interface{}) (reply []byte,
 		})
 	}()
 
-	conn, err := client.pool.Get()
+	pool := client.pool
+	if isCommandWrite(commandName) && len(client.SentinelServers) > 0 {
+		pool = client.spool
+	}
+	conn, err := pool.Get()
 	if err != nil {
 		return
 	}
-	defer client.pool.Release(conn)
+	defer pool.Release(conn)
 	redisConn, _ := conn.(redislib.Conn)
 	reply, err = redislib.Bytes(redisConn.Do(commandName, args...))
 	return
@@ -150,32 +174,76 @@ func (client *Client) initPool() {
 		client.IdleTimeoutS,
 		func() (pool.Conn, error) {
 			index := rand_gen.Intn(len(client.Servers))
-			// 网络连接
-			netConn, err := net.DialTimeout(
-				"tcp",
-				client.Servers[index],
-				time.Duration(client.ConnTimeoutMs)*time.Millisecond,
-			)
-			// redis连接
-			redisConn := redislib.NewConn(
-				netConn,
-				time.Duration(client.ReadTimeoutMs)*time.Millisecond,
-				time.Duration(client.WriteTimeoutMs)*time.Millisecond,
-			)
-			if client.Password != "" {
-				if _, err := redisConn.Do("AUTH", client.Password); err != nil {
-					netConn.Close()
-					return nil, err
-				}
-			}
-			if client.Db > 0 {
-				if _, err := redisConn.Do("SELECT", client.Db); err != nil {
-					netConn.Close()
-					return nil, err
-				}
-			}
+			redisConn, err := client.DialConn(client.Servers[index])
 			return redisConn, err
+		},
+		func(c pool.Conn) error {
+			conn, _ := c.(redislib.Conn)
+			_, err := conn.Do("PING")
+			return err
 		},
 		true,
 	)
+}
+
+func (client *Client) initSentinelpool() {
+
+	stnl := &sentinel.Sentinel{
+		Addrs:      client.SentinelServers,
+		MasterName: client.RedisSet,
+		Dial: func(addr string) (redislib.Conn, error) {
+			timeout := 500 * time.Millisecond
+			c, err := redislib.DialTimeout("tcp", addr, timeout, timeout, timeout)
+			return c, err
+		},
+	}
+
+	client.spool = pool.New(
+		client.MaxIdle,
+		client.MaxActive,
+		client.IdleTimeoutS,
+		func() (pool.Conn, error) {
+			master, err := stnl.MasterAddr()
+			redisConn, err := client.DialConn(master)
+			return redisConn, err
+		},
+		func(c pool.Conn) error {
+			conn, _ := c.(redislib.Conn)
+			if !sentinel.TestRole(conn, "master") {
+				return errors.New("Failed role check")
+			} else {
+				return nil
+			}
+		},
+		true,
+	)
+}
+
+/**
+* 获取一个redis连接
+ */
+func (client *Client) DialConn(address string) (redislib.Conn, error) {
+	netConn, err := net.DialTimeout(
+		"tcp",
+		address,
+		time.Duration(client.ConnTimeoutMs)*time.Millisecond,
+	)
+	redisConn := redislib.NewConn(
+		netConn,
+		time.Duration(client.ReadTimeoutMs)*time.Millisecond,
+		time.Duration(client.WriteTimeoutMs)*time.Millisecond,
+	)
+	if client.Password != "" {
+		if _, err := redisConn.Do("AUTH", client.Password); err != nil {
+			netConn.Close()
+			return nil, err
+		}
+	}
+	if client.Db > 0 {
+		if _, err := redisConn.Do("SELECT", client.Db); err != nil {
+			netConn.Close()
+			return nil, err
+		}
+	}
+	return redisConn, err
 }

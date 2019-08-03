@@ -45,21 +45,25 @@ type ConnPool struct {
 	cond *sync.Cond
 }
 
-func New(maxIdle int, maxActive int, idleTimeoutS int, dial func() (Conn, error), wait bool) *ConnPool {
+func New(
+	maxIdle int,
+	maxActive int,
+	idleTimeoutS int,
+	dial func() (Conn, error),
+	TestOnBorrow func(Conn) error,
+	wait bool,
+) *ConnPool {
 	pool := &ConnPool{
-		MaxIdle:     maxIdle,
-		MaxActive:   maxActive,
-		IdleTimeout: time.Duration(idleTimeoutS) * time.Second,
-		Dial:        dial,
-		Wait:        wait,
+		MaxIdle:      maxIdle,
+		MaxActive:    maxActive,
+		IdleTimeout:  time.Duration(idleTimeoutS) * time.Second,
+		Dial:         dial,
+		TestOnBorrow: TestOnBorrow,
+		Wait:         wait,
 	}
 	if pool.Wait {
 		pool.cond = sync.NewCond(&pool.mu)
 	}
-	// pool.TestOnBorrow = func(c Conn) error {
-	// 	_, err := c.Do("PING")
-	// 	return err
-	// }
 
 	return pool
 }
@@ -73,44 +77,46 @@ func (this *ConnPool) Get() (conn Conn, err error) {
 	if this.IdleTimeout > 0 {
 		this.closeExipredIdle()
 	}
+
 	for {
 		// 从连接池中取
-		conn = this.getIdle()
-		if conn != nil {
+		for {
+			conn = this.getIdleConn()
+			// idle empty
+			if conn == nil {
+				break
+			}
 			if this.TestOnBorrow != nil {
 				err = this.TestOnBorrow(conn)
-				if err != nil {
-					conn.Close()
-					conn = this.getIdle()
-					err = nil
-				}
 			}
-			break
+			if err == nil {
+				return conn, nil
+			}
 		}
 
-		// 连接池不够，看是否超过活跃上限，超过则等待其它请求释放连接，否则dial一个新连接
+		// 创建新连接
 		if this.MaxActive == 0 || !this.overMaxActive() {
 			conn, err = this.Dial()
 			if err == nil {
 				this.increActive(1)
-			}
-			if this.TestOnBorrow != nil {
-				err = this.TestOnBorrow(conn)
-				if err != nil {
-					conn.Close()
-					conn = nil
+				if this.TestOnBorrow != nil {
+					err = this.TestOnBorrow(conn)
 				}
 			}
-			break
+			return conn, err
 		}
 
+		// 连接数超过active上限返回错误
 		if !this.Wait {
 			conn = nil
 			err = ErrMaxConn
-			break
+			return conn, err
 		}
+
+		// 等待其它连接释放
 		this.cond.Wait()
 	}
+
 	return conn, err
 }
 
@@ -148,10 +154,14 @@ func (this *ConnPool) Destory() {
 	}
 }
 
+func (this *ConnPool) Active() int {
+	return this.active
+}
+
 /**
 * 尝试从池子中拿连接
  */
-func (this *ConnPool) getIdle() Conn {
+func (this *ConnPool) getIdleConn() Conn {
 	if this.len() == 0 {
 		return nil
 	}
