@@ -143,7 +143,7 @@ func (client *Client) Do(commandName string, args ...interface{}) (reply []byte,
 			errmsg = err.Error()
 		}
 		log.Info(map[string]interface{}{
-			"action":  "redis_do",
+			"action":  "redis_call",
 			"command": commandName,
 			"cost":    helper.FormatDurationToMs(cost),
 			"errmsg":  errmsg,

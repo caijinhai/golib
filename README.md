@@ -21,9 +21,9 @@
     └── view.go
 ```
 
-## 日志
+## 1. Log
 
-### 配置文件
+#### 1.1 配置
 ```
 {
     "Type": "file",
@@ -35,7 +35,7 @@
 }
 ```
 
-### 使用
+#### 1.2 使用
 ```
 log.Init("./log.conf") 
 log.SetTraceId("请求id")
@@ -46,39 +46,82 @@ log.Debug(map[string]interface{}{
 log.Debugf("xxxxx")
 ```
 
-## 连接池
+## 2. Pool
 
-### 核心配置
+#### 2.1 配置
 
 ```
 MaxIdle
 MaxActive
 Dial
+TestOnBorrow
 Wait
 ```
 
-### 使用
+#### 2.2 使用
 ```
-import (
-    "net"
-    "time"
-    "math/rand"
-)
 rand_gen := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 client.pool = pool.New(
-    client.MaxIdle,
-    client.MaxActive,
-    client.IdleTimeoutS,
-    func() (pool.Conn, error) {
-        index := rand_gen.Intn(len(client.Servers))
-        c, err := net.Dial("tcp", client.Servers[index])
-        if err == nil {
-            err = c.SetWriteDeadline(time.Now().Add(time.Duration(client.WriteTimeoutMs) * time.Nanosecond))
-            err = c.SetReadDeadline(time.Now().Add(time.Duration(client.ReadTimeoutMs) * time.Nanosecond))
-        }
-        return c, err
-    },
-    true,
-)
+        client.MaxIdle,
+        client.MaxActive,
+        client.IdleTimeoutS,
+        func() (pool.Conn, error) {
+            index := rand_gen.Intn(len(client.Servers))
+            redisConn, err := client.DialConn(client.Servers[index])
+            return redisConn, err
+        },
+        func(c pool.Conn) error {
+            conn, _ := c.(redislib.Conn)
+            _, err := conn.Do("PING")
+            return err
+        },
+        true,
+    )
+```
+
+## 3. Client
+
+### 3.1 Http
+
+#### 3.1.1 配置
+```
+Timeout             time.Duration // 总超时时间
+ConnectTimeout      time.Duration // 连接超时时间
+KeepAlive           time.Duration // 长连接过期时间
+MaxIdleConnsPerHost int // 每个host池子连接数
+```
+
+#### 3.1.2 使用
+```
+resp, err := client.Get("http://www.baidu.com/s", map[string]interface{}{"wd": "beijing"})
+resp, err := client.Post("http://www.baidu.com/s", map[string]interface{}{"wd": "beijing"})
+status := resp.GetStatusCode()
+body, _ := resp.GetBodyAsString()
+```
+
+### 3.2 Redis
+
+#### 3.2.1 配置
+
+```
+"SentinelServers": ["127.0.0.1:26379", "127.0.0.1:26380", "127.0.0.1:26381"],
+"RedisSet": "api",
+"Db":0,
+"Servers": ["127.0.0.1:6379", "127.0.0.1:6380"],
+"ConnTimeoutMs": 300,
+"WriteTimeoutMs": 300,
+"ReadTimeoutMs": 300,
+"MaxIdle": 100,
+"MaxActive": 200,
+"IdleTimeoutS": 60
+```
+
+#### 3.2.2 使用
+
+```
+client := &redis.Client{}
+client.Init()
+client.Set("hello", []byte("world"))
+client.Get("hello")
 ```
