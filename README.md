@@ -1,27 +1,26 @@
 # Go Libary
+<!-- vim-markdown-toc GFM -->
 
-```
-├── client
-│   ├── http
-│   ├── mysql
-│   ├── redis
-│   ├── thrift
-│   └── zookeeper
-├── helper
-│   ├── arr.go
-│   ├── helper.go
-│   ├── linklist.go
-│   ├── str.go
-│   └── time.go
-├── log
-│   └── log.go
-└── utils
-    ├── hashid.go
-    ├── validator.go
-    └── view.go
-```
+* [1. Log](#1-log)
+    * [1.1 配置](#11-配置)
+    * [1.2 使用](#12-使用)
+* [2. Pool](#2-pool)
+    * [2.1 配置](#21-配置)
+    * [2.2 使用](#22-使用)
+* [3. Client](#3-client)
+    * [3.1 Http](#31-http)
+        * [3.1.1 配置](#311-配置)
+        * [3.1.2 使用](#312-使用)
+    * [3.2 Redis](#32-redis)
+        * [3.2.1 配置](#321-配置)
+        * [3.2.2 使用](#322-使用)
+    * [3.3 MySQL](#33-mysql)
+        * [3.3.1 配置](#331-配置)
+        * [3.3.2 使用](#332-使用)
 
-## 1. Log
+<!-- vim-markdown-toc -->
+
+### 1. Log
 
 #### 1.1 配置
 ```
@@ -46,7 +45,7 @@ log.Debug(map[string]interface{}{
 log.Debugf("xxxxx")
 ```
 
-## 2. Pool
+### 2. Pool
 
 #### 2.1 配置
 
