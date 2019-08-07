@@ -51,6 +51,7 @@ func TestPool(t *testing.T) {
 			)
 			return c, err
 		},
+		nil,
 		true,
 	)
 

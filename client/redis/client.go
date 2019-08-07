@@ -34,11 +34,11 @@ type Client struct {
 /**
 * 通过配置文件生成client
  */
-func Init(confFile string) (redisClient map[string]*Client, err error) {
+func Init(confFile string) (clients map[string]*Client, err error) {
 	if res, err := ioutil.ReadFile(confFile); err != nil {
 		err = errors.New("error opening conf file=" + confFile)
 	} else {
-		if err := json.Unmarshal(res, &redisClient); err != nil {
+		if err := json.Unmarshal(res, &clients); err != nil {
 			msg := fmt.Sprintf("error parsing conf file=%s, err=%s", confFile, err.Error())
 			err = errors.New(msg)
 		}
@@ -47,8 +47,8 @@ func Init(confFile string) (redisClient map[string]*Client, err error) {
 	if err != nil {
 		return
 	}
-	for key, _ := range redisClient {
-		redisClient[key].Init()
+	for key, _ := range clients {
+		clients[key].Init()
 	}
 
 	return
@@ -112,7 +112,7 @@ func (client *Client) DoScript(scirpt *redislib.Script, args ...interface{}) (re
 			errmsg = err.Error()
 		}
 		log.Info(map[string]interface{}{
-			"action":  "redis_do",
+			"action":  "redis_call",
 			"command": "DoScript",
 			"cost":    helper.FormatDurationToMs(cost),
 			"errmsg":  errmsg,

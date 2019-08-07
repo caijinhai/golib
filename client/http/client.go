@@ -13,9 +13,9 @@ import (
 // 全局变量/局部变量
 
 type Client struct {
-	Timeout             time.Duration // 总超时时间
-	ConnectTimeout      time.Duration // 连接超时时间
-	KeepAlive           time.Duration // 长连接过期时间
+	TimeoutMs           int // 总超时时间，单位毫秒
+	ConnectTimeoutMs    int // 连接超时时间，单位毫秒
+	KeepAlive           int // 长连接过期时间，单位秒
 	MaxIdleConnsPerHost int
 	Handler             *http.Client
 }
@@ -30,19 +30,19 @@ const (
 var defaultClient = &Client{}
 
 func init() {
-	defaultClient.SetTimeout(time.Duration(DEAULT_TIMEOUTMS) * time.Millisecond)
-	defaultClient.SetConnectTimeout(time.Duration(DEAULT_CONNECT_TIMEOUTMS) * time.Millisecond)
-	defaultClient.SetKeepAlive(time.Duration(DEAULT_KEEPALIVES) * time.Second)
+	defaultClient.SetTimeout(DEAULT_TIMEOUTMS)
+	defaultClient.SetConnectTimeout(DEAULT_CONNECT_TIMEOUTMS)
+	defaultClient.SetKeepAlive(DEAULT_KEEPALIVES)
 	defaultClient.SetMaxIdleConnsPerHost(10)
 	defaultClient.SetHandler(defaultClient.NewHandler())
 }
 
 // 局部对象
-func New(Timeout int, ConnectTimeout int, KeepAlive int, MaxIdleConnsPerhost int) *Client {
+func New(TimeoutMs int, ConnectTimeoutMs int, KeepAlive int, MaxIdleConnsPerhost int) *Client {
 	client := &Client{}
-	client.SetTimeout(time.Duration(Timeout) * time.Millisecond)
-	client.SetConnectTimeout(time.Duration(ConnectTimeout) * time.Millisecond)
-	client.SetKeepAlive(time.Duration(KeepAlive) * time.Second)
+	client.SetTimeout(client.TimeoutMs)
+	client.SetConnectTimeout(client.ConnectTimeoutMs)
+	client.SetKeepAlive(client.KeepAlive)
 	client.SetMaxIdleConnsPerHost(MaxIdleConnsPerhost)
 	client.SetHandler(client.NewHandler())
 	return client
@@ -50,12 +50,12 @@ func New(Timeout int, ConnectTimeout int, KeepAlive int, MaxIdleConnsPerhost int
 
 func (client *Client) NewHandler() *http.Client {
 	return &http.Client{
-		Timeout: client.Timeout, //总的超时
+		Timeout: time.Duration(client.TimeoutMs) * time.Millisecond, //总的超时
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
 			Dial: (&net.Dialer{
-				Timeout:   client.ConnectTimeout, //链接超时
-				KeepAlive: client.KeepAlive,
+				Timeout:   time.Duration(client.ConnectTimeoutMs) * time.Millisecond, //链接超时
+				KeepAlive: time.Duration(client.KeepAlive) * time.Second,
 			}).Dial,
 			TLSHandshakeTimeout: 10 * time.Second,
 			DisableKeepAlives:   false,
@@ -64,15 +64,15 @@ func (client *Client) NewHandler() *http.Client {
 	}
 }
 
-func (client *Client) SetTimeout(Timeout time.Duration) {
-	client.Timeout = Timeout
+func (client *Client) SetTimeout(Timeout int) {
+	client.TimeoutMs = Timeout
 }
 
-func (client *Client) SetConnectTimeout(Timeout time.Duration) {
-	client.ConnectTimeout = Timeout
+func (client *Client) SetConnectTimeout(Timeout int) {
+	client.ConnectTimeoutMs = Timeout
 }
 
-func (client *Client) SetKeepAlive(KeepAlive time.Duration) {
+func (client *Client) SetKeepAlive(KeepAlive int) {
 	client.KeepAlive = KeepAlive
 }
 

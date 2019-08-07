@@ -30,9 +30,9 @@ type ConnPool struct {
 	Dial         func() (Conn, error)
 	TestOnBorrow func(Conn) error // 测试连接健康，比如检查角色是否master，ping是否正常
 
-	MaxActive   int           // 同一时刻最多使用连接数 max active
-	MaxIdle     int           // 池子最大保留连接 max idle
-	IdleTimeout time.Duration // 池子中的连接过期时间
+	MaxActive    int // 同一时刻最多使用连接数 max active
+	MaxIdle      int // 池子最大保留连接 max idle
+	IdleTimeoutS int // 池子中的连接过期时间，单位s
 
 	// If Wait is true and the pool is at the MaxActive limit, then Get() Waits
 	// for a connection to be returned to the pool before returning.
@@ -56,7 +56,7 @@ func New(
 	pool := &ConnPool{
 		MaxIdle:      maxIdle,
 		MaxActive:    maxActive,
-		IdleTimeout:  time.Duration(idleTimeoutS) * time.Second,
+		IdleTimeoutS: idleTimeoutS,
 		Dial:         dial,
 		TestOnBorrow: TestOnBorrow,
 		Wait:         wait,
@@ -74,7 +74,7 @@ func New(
 func (this *ConnPool) Get() (conn Conn, err error) {
 	this.mu.Lock()
 	defer this.mu.Unlock()
-	if this.IdleTimeout > 0 {
+	if this.IdleTimeoutS > 0 {
 		this.closeExipredIdle()
 	}
 
@@ -201,7 +201,7 @@ func (this *ConnPool) closeExipredIdle() {
 			break
 		}
 		ic := e.Value.(idle)
-		if time.Now().Before(ic.t.Add(this.IdleTimeout)) {
+		if time.Now().Before(ic.t.Add(time.Duration(this.IdleTimeoutS) * time.Second)) {
 			break
 		}
 		this.idlelist.Remove(e)

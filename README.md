@@ -53,6 +53,7 @@ log.Debugf("xxxxx")
 ```
 MaxIdle
 MaxActive
+IdleTimeoutS
 Dial
 TestOnBorrow
 Wait
@@ -60,24 +61,22 @@ Wait
 
 #### 2.2 使用
 ```
-rand_gen := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-client.pool = pool.New(
-        client.MaxIdle,
-        client.MaxActive,
-        client.IdleTimeoutS,
-        func() (pool.Conn, error) {
-            index := rand_gen.Intn(len(client.Servers))
-            redisConn, err := client.DialConn(client.Servers[index])
-            return redisConn, err
-        },
-        func(c pool.Conn) error {
-            conn, _ := c.(redislib.Conn)
-            _, err := conn.Do("PING")
-            return err
-        },
-        true,
-    )
+pool := New(
+    MaxIdle,
+    MaxActive,
+    IdleTimeoutS,
+    func() (Conn, error) {
+        index := rand_gen.Intn(len(Servers))
+        c, err := net.DialTimeout(
+            "tcp",
+            Servers[index],
+            time.Duration(ConnTimeoutMs)*time.Millisecond,
+        )
+        return c, err
+    },
+    nil,
+    true,
+)
 ```
 
 ## 3. Client
@@ -86,16 +85,17 @@ client.pool = pool.New(
 
 #### 3.1.1 配置
 ```
-Timeout             time.Duration // 总超时时间
-ConnectTimeout      time.Duration // 连接超时时间
-KeepAlive           time.Duration // 长连接过期时间
-MaxIdleConnsPerHost int // 每个host池子连接数
+TimeoutMs           int // 总超时时间，单位毫秒
+ConnectTimeoutMs    int // 连接超时时间，单位毫秒
+KeepAlive           int // 长连接过期时间，单位秒
+MaxIdleConnsPerHost int
 ```
 
 #### 3.1.2 使用
 ```
-resp, err := client.Get("http://www.baidu.com/s", map[string]interface{}{"wd": "beijing"})
-resp, err := client.Post("http://www.baidu.com/s", map[string]interface{}{"wd": "beijing"})
+client := client.New(TimeoutMs, ConnectTimeoutMs, KeepAlive, MaxIdleConnsPerhost)
+resp, err = client.Get("http://www.baidu.com/s", map[string]interface{}{"wd": "beijing"})
+resp, err = client.Post("http://www.baidu.com/s", map[string]interface{}{"wd": "beijing"})
 status := resp.GetStatusCode()
 body, _ := resp.GetBodyAsString()
 ```
@@ -120,8 +120,32 @@ body, _ := resp.GetBodyAsString()
 #### 3.2.2 使用
 
 ```
-client := &redis.Client{}
+client := &redis.Client{conf}
 client.Init()
 client.Set("hello", []byte("world"))
 client.Get("hello")
+```
+
+### 3.3 MySQL
+
+#### 3.3.1 配置
+
+```
+"Server": "127.0.0.1:3306",
+"User": "root",
+"Password": "",
+"DataBase": "test",
+"ConnTimeoutMs": 200,
+"WriteTimeoutMs": 200,
+"ReadTimeoutMs": 1000,
+"MaxIdleConn": 50,
+"MaxOpenConn": 200
+```
+
+#### 3.3.2 使用
+
+```
+client := &mysql.Client{conf}
+client.Init()
+client.DB.Table("users").First(&user)
 ```

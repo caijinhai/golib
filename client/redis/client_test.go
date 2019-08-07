@@ -5,7 +5,10 @@ import (
 	"testing"
 )
 
-func TestClient(t *testing.T) {
+/**
+* 单机读写
+ */
+func TestStandAlone(t *testing.T) {
 
 	redisClient, err := Init("../../conf/redis.conf")
 	if err != nil {
@@ -24,6 +27,9 @@ func TestClient(t *testing.T) {
 	})
 }
 
+/**
+* 读写分离(sentinel高可用)
+ */
 func TestSentinel(t *testing.T) {
 
 	redisClient, err := Init("../../conf/redis.conf")
