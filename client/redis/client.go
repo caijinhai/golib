@@ -35,10 +35,10 @@ type Client struct {
 * 通过配置文件生成client
  */
 func Init(confFile string) (clients map[string]*Client, err error) {
-	if res, err := ioutil.ReadFile(confFile); err != nil {
+	if res, e := ioutil.ReadFile(confFile); e != nil {
 		err = errors.New("error opening conf file=" + confFile)
 	} else {
-		if err := json.Unmarshal(res, &clients); err != nil {
+		if err = json.Unmarshal(res, &clients); err != nil {
 			msg := fmt.Sprintf("error parsing conf file=%s, err=%s", confFile, err.Error())
 			err = errors.New(msg)
 		}
